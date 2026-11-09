@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mémorisation Coran IA - Style Tarteel</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d7377">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      color: #f0f0f0;
+      min-height: 100vh;
+      padding: 10px;
+    }
+    .header {
+      text-align: center;
+      padding: 15px 10px;
+      background: rgba(0,0,0,0.4);
+      border-radius: 15px;
+      margin-bottom: 15px;
+    }
+    .header h1 { font-size: 1.6rem; color: #4ecca3; }
+    .header p { font-size: 0.85rem; opacity: 0.8; margin-top: 5px; }
+    .controls {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+    select, button {
+      padding: 12px 18px;
+      border-radius: 25px;
+      border: none;
+      font-size: 1rem;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    select { background: #2c3e50; color: white; }
+    button.mic {
+      background: #e74c3c;
+      color: white;
+      font-weight: bold;
+      min-width: 140px;
+    }
+    button.mic.listening {
+      background: #27ae60;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    button.reset { background: #3498db; color: white; }
+    .status {
+      text-align: center;
+      margin: 10px 0;
+      padding: 10px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 10px;
+      min-height: 40px;
+      font-size: 0.95rem;
+    }
+    .recognized {
+      color: #f39c12;
+      font-size: 1.05rem;
+      margin-top: 5px;
+      text-align: center;
+    }
+    .ayah-container {
+      max-height: 65vh;
+      overflow-y: auto;
+      padding: 5px;
+    }
+    .ayah {
+      background: rgba(255,255,255,0.08);
+      margin: 10px 0;
+      padding: 15px;
+      border-radius: 12px;
+      transition: all 0.3s ease;
+      border: 2px solid transparent;
+    }
+    .ayah.current {
+      background: rgba(46, 204, 113, 0.25);
+      border-color: #2ecc71;
+      box-shadow: 0 0 15px rgba(46, 204, 113, 0.4);
+    }
+    .ayah.error {
+      background: rgba(231, 76, 60, 0.35);
+      border-color: #e74c3c;
+      animation: shake 0.5s;
+    }
+    .ayah.done {
+      background: rgba(39, 174, 96, 0.2);
+      border-color: #27ae60;
+      opacity: 0.85;
+    }
+    .ayah.pending { opacity: 0.7; }
+    .arabic {
+      font-family: 'Amiri', 'Traditional Arabic', 'Scheherazade New', 'Noto Naskh Arabic', serif;
+      font-size: 1.5rem;
+      line-height: 2;
+      text-align: right;
+      direction: rtl;
+      margin-bottom: 8px;
+    }
+    .french {
+      font-size: 0.95rem;
+      line-height: 1.5;
+      text-align: left;
+      direction: ltr;
+      color: #bdc3c7;
+      border-top: 1px solid rgba(255,255,255,0.15);
+      padding-top: 8px;
+    }
+    .word {
+      display: inline;
+      padding: 0 2px;
+    }
+    .word.correct { color: #2ecc71; font-weight: bold; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 0.75rem;
+      opacity: 0.6;
+    }
+    .mode-toggle {
+      margin: 10px 0;
+      text-align: center;
+    }
+    .mode-toggle label { margin-left: 10px; }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="header">
+    <h1>Mémorisation Coran IA</h1>
+    <p>Style Tarteel – Correction en temps réel pendant la récitation</p>
+  </div>
+
+  <div class="controls">
+    <select id="surahSelect">
+      <option value="">Choisir une sourate...</option>
+    </select>
+    <button id="micBtn" class="mic">🎤 Commencer la récitation</button>
+    <button id="resetBtn" class="reset">🔄 Recommencer</button>
+  </div>
+
+  <div class="mode-toggle">
+    <label>
+      <input type="checkbox" id="hideMode"> Mode mémorisation (cacher les versets suivants)
+    </label>
+  </div>
+
+  <div class="status" id="status">Appuyez sur le micro et commencez à réciter</div>
+  <div class="recognized" id="recognized"></div>
+
+  <div class="ayah-container" id="ayahContainer"></div>
+
+  <div class="footer">
+    Prototype – Utilisez Chrome sur Android pour de meilleurs résultats de reconnaissance vocale<br>
+    Texte arabe + traduction française
+  </div>
+
+  <script>
+// Quran Memorization App with AI Speech Correction
+// Prototype inspired by Tarteel - French UI + Arabic + FR translation
+// Supports all 114 surahs (local short ones + API for others)
+
+const SURAH_NAMES = [
+  "Al-Fatiha","Al-Baqara","Aal-i-Imraan","An-Nisaa","Al-Maaida","Al-An'aam","Al-A'raaf","Al-Anfaal","At-Tawba","Yunus",
+  "Hud","Yusuf","Ar-Ra'd","Ibrahim","Al-Hijr","An-Nahl","Al-Israa","Al-Kahf","Maryam","Taa-Haa",
+  "Al-Anbiyaa","Al-Hajj","Al-Muminoon","An-Noor","Al-Furqaan","Ash-Shu'araa","An-Naml","Al-Qasas","Al-Ankaboot","Ar-Room",
+  "Luqman","As-Sajda","Al-Ahzaab","Saba","Faatir","Yaa-Seen","As-Saaffaat","Saad","Az-Zumar","Ghafir",
+  "Fussilat","Ash-Shura","Az-Zukhruf","Ad-Dukhaan","Al-Jaathiya","Al-Ahqaf","Muhammad","Al-Fath","Al-Hujuraat","Qaaf",
+  "Adh-Dhaariyat","At-Tur","An-Najm","Al-Qamar","Ar-Rahmaan","Al-Waaqia","Al-Hadid","Al-Mujaadila","Al-Hashr","Al-Mumtahana",
+  "As-Saff","Al-Jumu'a","Al-Munaafiqoon","At-Taghaabun","At-Talaaq","At-Tahrim","Al-Mulk","Al-Qalam","Al-Haaqqa","Al-Ma'aarij",
+  "Nooh","Al-Jinn","Al-Muzzammil","Al-Muddaththir","Al-Qiyaama","Al-Insaan","Al-Mursalaat","An-Naba","An-Naazi'aat","Abasa",
+  "At-Takwir","Al-Infitaar","Al-Mutaffifin","Al-Inshiqaaq","Al-Burooj","At-Taariq","Al-A'laa","Al-Ghaashiya","Al-Fajr","Al-Balad",
+  "Ash-Shams","Al-Lail","Ad-Dhuhaa","Ash-Sharh","At-Tin","Al-Alaq","Al-Qadr","Al-Bayyina","Az-Zalzala","Al-Aadiyaat",
+  "Al-Qaari'a","At-Takaathur","Al-Asr","Al-Humaza","Al-Fil","Quraish","Al-Maa'un","Al-Kawthar","Al-Kaafiroon","An-Nasr",
+  "Al-Masad","Al-Ikhlas","Al-Falaq","An-Nas"
+];
+
+const SURAH_DATA = {
+  1: {
+    name: "Al-Fatiha",
+    arabic: [
+      "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
+      "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَٰلَمِينَ",
+      "ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
+      "مَٰلِكِ يَوْمِ ٱلدِّينِ",
+      "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
+      "ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ",
+      "صِرَٰطَ ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ"
+    ],
+    french: [
+      "Au nom d’Allah, le Tout Miséricordieux, le Très Miséricordieux.",
+      "Louange à Allah, Seigneur de l’Univers.",
+      "Le Tout Miséricordieux, le Très Miséricordieux,",
+      "Maître du Jour de la rétribution.",
+      "C’est Toi [Seul] que nous adorons, et c’est Toi [Seul] dont nous implorons secours.",
+      "Guide-nous dans le droit chemin,",
+      "le chemin de ceux que Tu as comblés de faveurs, non pas de ceux qui ont encouru Ta colère, ni des égarés."
+    ]
+  },
+  112: {
+    name: "Al-Ikhlas",
+    arabic: [
+      "قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+      "ٱللَّهُ ٱلصَّمَدُ",
+      "لَمْ يَلِدْ وَلَمْ يُولَدْ",
+      "وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌۢ"
+    ],
+    french: [
+      "Dis : « Il est Allah, Unique. »",
+      "Allah, Le Seul Recours.",
+      "Il n’a pas engendré et n’a pas été engendré.",
+      "Et nul n’est égal à Lui."
+    ]
+  },
+  113: {
+    name: "Al-Falaq",
+    arabic: [
+      "قُلْ أَعُوذُ بِرَبِّ ٱلْفَلَقِ",
+      "مِن شَرِّ مَا خَلَقَ",
+      "وَمِن شَرِّ غَاسِقٍ إِذَا وَقَبَ",
+      "وَمِن شَرِّ ٱلنَّفَّٰثَٰتِ فِي ٱلْعُقَدِ",
+      "وَمِن شَرِّ حَاسِدٍ إِذَا حَسَدَ"
+    ],
+    french: [
+      "Dis : « Je cherche refuge auprès du Seigneur de l’aube,",
+      "contre le mal de ce qu’Il a créé,",
+      "contre le mal de l’obscurité quand elle s’étend,",
+      "contre le mal de celles qui soufflent sur les nœuds,",
+      "et contre le mal de l’envieux quand il envie. »"
+    ]
+  },
+  114: {
+    name: "An-Nas",
+    arabic: [
+      "قُلْ أَعُوذُ بِرَبِّ ٱلنَّاسِ",
+      "مَلِكِ ٱلنَّاسِ",
+      "إِلَٰهِ ٱلنَّاسِ",
+      "مِن شَرِّ ٱلْوَسْوَاسِ ٱلْخَنَّاسِ",
+      "ٱلَّذِي يُوَسْوِسُ فِي صُدُورِ ٱلنَّاسِ",
+      "مِنَ ٱلْجِنَّةِ وَٱلنَّاسِ"
+    ],
+    french: [
+      "Dis : « Je cherche refuge auprès du Seigneur des hommes,",
+      "le Roi des hommes,",
+      "le Dieu des hommes,",
+      "contre le mal du tentateur sournois,",
+      "qui souffle le mal dans les poitrines des hommes,",
+      "qu’il soit parmi les djinns ou parmi les hommes. »"
+    ]
+  },
+  108: {
+    name: "Al-Kawthar",
+    arabic: [
+      "إِنَّآ أَعْطَيْنَٰكَ ٱلْكَوْثَرَ",
+      "فَصَلِّ لِرَبِّكَ وَٱنْحَرْ",
+      "إِنَّ شَانِئَكَ هُوَ ٱلْأَبْتَرُ"
+    ],
+    french: [
+      "Nous t’avons certes accordé l’Abondance.",
+      "Accomplis donc la prière pour ton Seigneur et sacrifie.",
+      "Celui qui te hait sera certes sans postérité."
+    ]
+  },
+  103: {
+    name: "Al-Asr",
+    arabic: [
+      "وَٱلْعَصْرِ",
+      "إِنَّ ٱلْإِنسَٰنَ لَفِي خُسْرٍ",
+      "إِلَّا ٱلَّذِينَ ءَامَنُوا۟ وَعَمِلُوا۟ ٱلصَّٰلِحَٰتِ وَتَوَاصَوْا۟ بِٱلْحَقِّ وَتَوَاصَوْا۟ بِٱلصَّبْرِ"
+    ],
+    french: [
+      "Par le Temps !",
+      "L’homme est certes en perdition,",
+      "sauf ceux qui croient et accomplissent les bonnes œuvres, s’enjoignent mutuellement la vérité et s’enjoignent mutuellement la patience."
+    ]
+  }
+};
+
+let currentSurah = 1;
+let ayahsArabic = [];
+let ayahsFrench = [];
+let currentAyahIndex = 0;
+let currentWordIndex = 0;
+let recognition = null;
+let isListening = false;
+let hideMode = false;
+let errorTimeout = null;
+let isLoading = false;
+
+function populateSurahSelect() {
+  const select = document.getElementById("surahSelect");
+  select.innerHTML = '<option value="">Choisir une sourate...</option>';
+  SURAH_NAMES.forEach((name, idx) => {
+    const num = idx + 1;
+    const option = document.createElement("option");
+    option.value = num;
+    option.textContent = `${num}. ${name}`;
+    if (SURAH_DATA[num]) option.textContent += " (hors-ligne)";
+    select.appendChild(option);
+  });
+  select.value = "1";
+}
+
+async function fetchSurah(num) {
+  if (isLoading) return;
+  isLoading = true;
+  document.getElementById("status").textContent = "Chargement de la sourate...";
+  try {
+    const [arRes, frRes] = await Promise.all([
+      fetch(`https://api.alquran.cloud/v1/surah/${num}/quran-uthmani`),
+      fetch(`https://api.alquran.cloud/v1/surah/${num}/fr.hamidullah`)
+    ]);
+    const arData = await arRes.json();
+    const frData = await frRes.json();
+    if (arData.code !== 200 || frData.code !== 200) throw new Error("API error");
+    ayahsArabic = arData.data.ayahs.map(a => a.text);
+    ayahsFrench = frData.data.ayahs.map(a => a.text);
+    currentAyahIndex = 0;
+    currentWordIndex = 0;
+    updateDisplay();
+    document.getElementById("status").textContent = `Sourate ${SURAH_NAMES[num-1]} chargée – Commencez la récitation`;
+  } catch (e) {
+    console.error(e);
+    document.getElementById("status").textContent = "Erreur de chargement. Vérifiez votre connexion.";
+  } finally {
+    isLoading = false;
+  }
+}
+
+function normalizeArabic(text) {
+  if (!text) return "";
+  return text
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْٰ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getWords(text) {
+  return normalizeArabic(text).split(" ").filter(w => w.length > 0);
+}
+
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert("Votre navigateur ne supporte pas la reconnaissance vocale. Utilisez Chrome sur Android.");
+    return null;
+  }
+  const rec = new SpeechRecognition();
+  rec.lang = "ar-SA";
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.maxAlternatives = 3;
+
+  rec.onresult = (event) => {
+    let interim = "";
+    let final = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        final += transcript + " ";
+      } else {
+        interim += transcript;
+      }
+    }
+    const full = (final + interim).trim();
+    document.getElementById("recognized").textContent = full ? "Entendu : " + full : "";
+    if (final) {
+      processRecognition(final.trim());
+    } else if (interim) {
+      processRecognition(interim, true);
+    }
+  };
+
+  rec.onerror = (e) => {
+    console.error(e);
+    if (e.error !== "no-speech") {
+      document.getElementById("status").textContent = "Erreur micro : " + e.error;
+    }
+  };
+
+  rec.onend = () => {
+    if (isListening) {
+      try { rec.start(); } catch (e) {}
+    }
+  };
+
+  return rec;
+}
+
+function processRecognition(text, isInterim = false) {
+  if (currentAyahIndex >= ayahsArabic.length) return;
+
+  const recognizedWords = getWords(text);
+  if (recognizedWords.length === 0) return;
+
+  const currentAyahWords = getWords(ayahsArabic[currentAyahIndex]);
+  const expectedNext = currentAyahWords.slice(currentWordIndex);
+
+  let matched = 0;
+  let hasError = false;
+
+  for (let i = 0; i < Math.min(recognizedWords.length, expectedNext.length); i++) {
+    const recW = recognizedWords[i];
+    const expW = expectedNext[i];
+    if (recW === expW || expW.includes(recW) || recW.includes(expW) || levenshtein(recW, expW) <= 1) {
+      matched++;
+    } else {
+      if (!isInterim && recW.length > 2) {
+        hasError = true;
+      }
+      break;
+    }
+  }
+
+  if (matched > 0) {
+    currentWordIndex += matched;
+    updateDisplay();
+    clearError();
+  }
+
+  if (hasError && !isInterim) {
+    markError();
+  }
+
+  if (currentWordIndex >= currentAyahWords.length) {
+    markDone();
+    currentAyahIndex++;
+    currentWordIndex = 0;
+    if (currentAyahIndex < ayahsArabic.length) {
+      updateDisplay();
+      document.getElementById("status").textContent = "Verset correct ! Passage au suivant";
+    } else {
+      document.getElementById("status").textContent = "Mashallah ! Sourate terminée avec succès 🎉";
+      stopListening();
+    }
+  }
+}
+
+function levenshtein(a, b) {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i-1) === a.charAt(j-1)) {
+        matrix[i][j] = matrix[i-1][j-1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i-1][j-1] + 1,
+          matrix[i][j-1] + 1,
+          matrix[i-1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function markError() {
+  const container = document.getElementById("ayahContainer");
+  const ayahEl = container.children[currentAyahIndex];
+  if (ayahEl) {
+    ayahEl.classList.add("error");
+    document.getElementById("status").textContent = "Erreur détectée ! Vérifiez le verset actuel";
+    clearTimeout(errorTimeout);
+    errorTimeout = setTimeout(() => {
+      ayahEl.classList.remove("error");
+    }, 2500);
+  }
+}
+
+function clearError() {
+  const container = document.getElementById("ayahContainer");
+  if (container.children[currentAyahIndex]) {
+    container.children[currentAyahIndex].classList.remove("error");
+  }
+}
+
+function markDone() {
+  const container = document.getElementById("ayahContainer");
+  const ayahEl = container.children[currentAyahIndex];
+  if (ayahEl) {
+    ayahEl.classList.remove("current", "error");
+    ayahEl.classList.add("done");
+  }
+}
+
+function updateDisplay() {
+  const container = document.getElementById("ayahContainer");
+  container.innerHTML = "";
+  ayahsArabic.forEach((ayah, idx) => {
+    const div = document.createElement("div");
+    div.className = "ayah";
+    if (idx < currentAyahIndex) div.classList.add("done");
+    else if (idx === currentAyahIndex) div.classList.add("current");
+    else div.classList.add("pending");
+
+    const arabicDiv = document.createElement("div");
+    arabicDiv.className = "arabic";
+    const frenchDiv = document.createElement("div");
+    frenchDiv.className = "french";
+    frenchDiv.textContent = ayahsFrench[idx] || "";
+
+    if (hideMode && idx > currentAyahIndex) {
+      arabicDiv.textContent = "•••••••• (caché)";
+      frenchDiv.textContent = "(caché)";
+      div.style.opacity = "0.4";
+    } else {
+      if (idx === currentAyahIndex && currentWordIndex > 0) {
+        const words = ayah.split(" ");
+        let html = "";
+        let wIdx = 0;
+        words.forEach((w) => {
+          const nw = normalizeArabic(w);
+          if (nw && wIdx < currentWordIndex) {
+            html += `<span class="word correct">${w}</span> `;
+            wIdx++;
+          } else {
+            html += w + " ";
+          }
+        });
+        arabicDiv.innerHTML = html.trim();
+      } else {
+        arabicDiv.textContent = ayah;
+      }
+    }
+
+    div.appendChild(arabicDiv);
+    div.appendChild(frenchDiv);
+    container.appendChild(div);
+  });
+  if (container.children[currentAyahIndex]) {
+    container.children[currentAyahIndex].scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+function loadSurah(num) {
+  if (!num) return;
+  currentSurah = num;
+  if (SURAH_DATA[num]) {
+    ayahsArabic = SURAH_DATA[num].arabic;
+    ayahsFrench = SURAH_DATA[num].french;
+    currentAyahIndex = 0;
+    currentWordIndex = 0;
+    updateDisplay();
+    document.getElementById("status").textContent = `Sourate ${SURAH_DATA[num].name} – Commencez la récitation`;
+    document.getElementById("recognized").textContent = "";
+  } else {
+    fetchSurah(num);
+  }
+}
+
+function startListening() {
+  if (!recognition) recognition = initSpeechRecognition();
+  if (!recognition) return;
+  isListening = true;
+  try {
+    recognition.start();
+    document.getElementById("micBtn").textContent = "⏹ Arrêter";
+    document.getElementById("micBtn").classList.add("listening");
+    document.getElementById("status").textContent = "Écoute en cours... récitez clairement";
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function stopListening() {
+  isListening = false;
+  if (recognition) {
+    try { recognition.stop(); } catch (e) {}
+  }
+  document.getElementById("micBtn").textContent = "🎤 Commencer la récitation";
+  document.getElementById("micBtn").classList.remove("listening");
+}
+
+document.getElementById("surahSelect").addEventListener("change", (e) => {
+  stopListening();
+  const val = e.target.value;
+  if (val) loadSurah(parseInt(val));
+});
+
+document.getElementById("micBtn").addEventListener("click", () => {
+  if (isListening) {
+    stopListening();
+  } else {
+    startListening();
+  }
+});
+
+document.getElementById("resetBtn").addEventListener("click", () => {
+  stopListening();
+  loadSurah(currentSurah);
+});
+
+document.getElementById("hideMode").addEventListener("change", (e) => {
+  hideMode = e.target.checked;
+  updateDisplay();
+});
+
+// Init
+populateSurahSelect();
+loadSurah(1);
+
+</script>
+</body>
+</html>
